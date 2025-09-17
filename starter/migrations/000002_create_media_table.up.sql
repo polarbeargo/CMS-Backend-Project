@@ -1,6 +1,7 @@
--- TODO: Create media table
--- - Add primary key id column as SERIAL
--- - Add required url column to store file location/path
--- - Add type column to identify media type (image, video, etc.)
--- - Add timestamps for created_at and updated_at
---   Note: timestamps should use timezone for global compatibility
+CREATE TABLE media (
+	id SERIAL PRIMARY KEY,
+	url VARCHAR(255) NOT NULL,
+	type VARCHAR(50) NOT NULL,
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
