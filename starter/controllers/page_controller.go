@@ -7,8 +7,11 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"gorm.io/gorm"
 )
+
+var pageValidator = validator.New()
 
 // GetPages retrieves all pages
 func GetPages(c *gin.Context) {
@@ -62,6 +65,10 @@ func CreatePage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: err.Error()})
 		return
 	}
+	if err := pageValidator.Struct(page); err != nil {
+		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: "Validation failed: " + err.Error()})
+		return
+	}
 	tx := db.Begin()
 	if err := tx.Create(&page).Error; err != nil {
 		tx.Rollback()
@@ -97,6 +104,10 @@ func UpdatePage(c *gin.Context) {
 	var input models.Page
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: err.Error()})
+		return
+	}
+	if err := pageValidator.Struct(input); err != nil {
+		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: "Validation failed: " + err.Error()})
 		return
 	}
 	page.Title = input.Title

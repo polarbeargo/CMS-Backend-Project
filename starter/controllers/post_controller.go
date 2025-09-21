@@ -7,8 +7,18 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"gorm.io/gorm"
 )
+
+var postValidator = validator.New()
+
+type PostInput struct {
+	Title    string `json:"title" validate:"required"`
+	Content  string `json:"content" validate:"required"`
+	Author   string `json:"author"`
+	MediaIDs []uint `json:"media_ids"`
+}
 
 // GetPosts retrieves all posts with optional filtering
 func GetPosts(c *gin.Context) {
@@ -26,7 +36,6 @@ func GetPosts(c *gin.Context) {
 		query = query.Where("author = ?", author)
 	}
 
-	// Use proper preloading for media relationships
 	if err := query.Preload("Media").Find(&posts).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, utils.HTTPError{
 			Code:    http.StatusInternalServerError,
@@ -61,14 +70,13 @@ func GetPost(c *gin.Context) {
 // CreatePost creates a new post
 func CreatePost(c *gin.Context) {
 	db := c.MustGet("db").(*gorm.DB)
-	var input struct {
-		Title    string `json:"title" binding:"required"`
-		Content  string `json:"content" binding:"required"`
-		Author   string `json:"author"`
-		MediaIDs []uint `json:"media_ids"`
-	}
+	var input PostInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: err.Error()})
+		return
+	}
+	if err := postValidator.Struct(input); err != nil {
+		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: "Validation failed: " + err.Error()})
 		return
 	}
 	var media []models.Media
@@ -116,14 +124,13 @@ func UpdatePost(c *gin.Context) {
 		}
 		return
 	}
-	var input struct {
-		Title    string `json:"title"`
-		Content  string `json:"content"`
-		Author   string `json:"author"`
-		MediaIDs []uint `json:"media_ids"`
-	}
+	var input PostInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: err.Error()})
+		return
+	}
+	if err := postValidator.Struct(input); err != nil {
+		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: "Validation failed: " + err.Error()})
 		return
 	}
 	if input.Title != "" {

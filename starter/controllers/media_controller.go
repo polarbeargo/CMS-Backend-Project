@@ -7,8 +7,11 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"gorm.io/gorm"
 )
+
+var mediaValidator = validator.New()
 
 func GetMedia(c *gin.Context) {
 	db := c.MustGet("db").(*gorm.DB)
@@ -45,6 +48,10 @@ func CreateMedia(c *gin.Context) {
 	var input models.Media
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: err.Error()})
+		return
+	}
+	if err := mediaValidator.Struct(input); err != nil {
+		c.JSON(http.StatusBadRequest, utils.HTTPError{Code: 400, Message: "Validation failed: " + err.Error()})
 		return
 	}
 	tx := db.Begin()
