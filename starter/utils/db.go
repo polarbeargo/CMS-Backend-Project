@@ -1,15 +1,22 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-// ConnectDB initializes the database connection
-func ConnectDB() (*gorm.DB, error) {
+type DBResources struct {
+	GormDB  *gorm.DB
+	PgxPool *pgxpool.Pool
+}
+
+func ConnectDB() (*DBResources, error) {
 	env := os.Getenv("APP_ENV")
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
@@ -27,19 +34,62 @@ func ConnectDB() (*gorm.DB, error) {
 		dbHost, dbUser, dbPassword, dbName, dbPort, sslMode,
 	)
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	poolConfig, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, fmt.Errorf("failed to parse pgxpool config: %w", err)
+	}
+	poolConfig.MaxConns = 10
+	poolConfig.MinConns = 2
+	poolConfig.MaxConnLifetime = 30 * time.Minute
+	poolConfig.HealthCheckPeriod = 1 * time.Minute
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pgxPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to pgxpool: %w", err)
 	}
 
-	sqlDB, err := db.DB()
+	if err := pgxPool.Ping(ctx); err != nil {
+		pgxPool.Close()
+		return nil, fmt.Errorf("pgxpool ping failed: %w", err)
+	}
+
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{})
 	if err != nil {
+		pgxPool.Close()
+		return nil, fmt.Errorf("failed to connect to database (gorm): %w", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		pgxPool.Close()
 		return nil, fmt.Errorf("failed to get database instance: %w", err)
 	}
-
 	if err := sqlDB.Ping(); err != nil {
+		pgxPool.Close()
 		return nil, fmt.Errorf("database ping failed: %w", err)
 	}
 
-	return db, nil
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(2)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+
+	return &DBResources{
+		GormDB:  gormDB,
+		PgxPool: pgxPool,
+	}, nil
+}
+
+func CloseDatabase(dbRes *DBResources) {
+	if dbRes == nil {
+		return
+	}
+	if dbRes.PgxPool != nil {
+		dbRes.PgxPool.Close()
+	}
+	if dbRes.GormDB != nil {
+		if sqlDB, err := dbRes.GormDB.DB(); err == nil {
+			sqlDB.Close()
+		}
+	}
 }
