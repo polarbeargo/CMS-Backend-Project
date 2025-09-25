@@ -11,3 +11,8 @@ type Post struct {
 	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 	Media     []Media   `gorm:"many2many:post_media" json:"media"`
 }
+
+type PostMedia struct {
+	PostID  uint `gorm:"primaryKey"`
+	MediaID uint `gorm:"primaryKey"`
+}
