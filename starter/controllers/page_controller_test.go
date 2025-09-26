@@ -6,22 +6,24 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gin-gonic/gin"
 )
 
-// TODO: Import required packages for:
-// - HTTP testing (net/http, httptest)
-// - JSON handling (encoding/json)
-// - Database mocking (sqlmock)
-// - Time handling
-// - Your application packages (models, utils)
+func init() {
+	gin.SetMode(gin.ReleaseMode)
+}
 
 func TestGetPages(t *testing.T) {
 	router, _, mock := utils.SetupRouterAndMockDB(t)
 	defer mock.ExpectClose()
+
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "pages"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
 	rows := sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at"}).
 		AddRow(1, "First Page", "Content 1", time.Now(), time.Now()).
@@ -38,103 +40,143 @@ func TestGetPages(t *testing.T) {
 		t.Fatalf("Expected status 200, but got %d", w.Code)
 	}
 
-	var response []models.Page
+	var response gin.H
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("Error unmarshaling response: %v", err)
 	}
-	if len(response) != 2 {
-		t.Fatalf("Expected 2 pages, but got %d", len(response))
+	data := response["data"].([]interface{})
+	if len(data) != 2 {
+		t.Fatalf("Expected 2 pages, but got %d", len(data))
 	}
 }
 
 func TestGetPage(t *testing.T) {
-	//TODO: Add test for GetPage
-    // STEP 1: Test Setup
-    // - Initialize test environment
-    
-    // STEP 2: Mock Data Creation
-    // - Create mock row for a single page
-    // - Include all required fields with test data
-    
-    // STEP 3: Database Expectations
-    // - Expect SELECT with WHERE clause for ID
-    // - Include proper argument matching
-    
-    // STEP 4: HTTP Test Setup
-    // - Register GET route with ID parameter
-    // - Create and execute request
-    
-    // STEP 5: Response Validation
-    // - Check status code
-    // - Verify page details match expected values
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at"}).
+		AddRow(1, "First Page", "Content 1", now, now)
+
+	mock.ExpectQuery(`SELECT \* FROM "pages" WHERE "pages"\."id" = \$1 ORDER BY "pages"\."id" LIMIT \$2`).WithArgs(1, 1).WillReturnRows(rows)
+
+	router.GET("/pages/:id", GetPage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/pages/1", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, but got %d", w.Code)
+	}
+
+	var response models.Page
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.ID != 1 || response.Title != "First Page" {
+		t.Fatalf("Unexpected page data: %+v", response)
+	}
 }
 
 func TestCreatePage(t *testing.T) {
-	//TODO: Add test for CreatePage
-    // STEP 1: Test Setup
-    // - Initialize test environment
-    
-    // STEP 2: Database Expectations
-    // - Expect transaction begin
-    // - Expect INSERT with proper columns
-    // - Expect transaction commit
-    
-    // STEP 3: Request Preparation
-    // - Create page object with test data
-    // - Convert to JSON for request body
-    
-    // STEP 4: HTTP Test Setup
-    // - Register POST route
-    // - Create request with JSON body
-    // - Set proper headers
-    
-    // STEP 5: Response Validation
-    // - Verify 201 Created status
-    // - Check created page details
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "pages"`).
+		WithArgs("New Page", "New Content", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	mock.ExpectCommit()
+
+	page := models.Page{Title: "New Page", Content: "New Content"}
+	body, _ := json.Marshal(page)
+
+	router.POST("/pages", CreatePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/pages", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected status 201, got %d", w.Code)
+	}
+
+	var response models.Page
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Title != "New Page" {
+		t.Fatalf("Expected title 'New Page', got %s", response.Title)
+	}
 }
 
 func TestUpdatePage(t *testing.T) {
-	//TODO: Add test for UpdatePage
-    // STEP 1: Test Setup
-    // - Initialize test environment
-    
-    // STEP 2: Database Expectations
-    // - Expect SELECT to find existing page
-    // - Expect transaction begin
-    // - Expect UPDATE with new values
-    // - Expect transaction commit
-    
-    // STEP 3: Request Preparation
-    // - Create update data
-    // - Prepare JSON request body
-    
-    // STEP 4: HTTP Test Setup
-    // - Register PUT route
-    // - Create request with ID and body
-    
-    // STEP 5: Response Validation
-    // - Verify successful update
-    // - Check updated fields
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at"}).
+		AddRow(1, "Old Title", "Old Content", now, now)
+	mock.ExpectQuery(`SELECT \* FROM "pages" WHERE "pages"\."id" = \$1 ORDER BY "pages"\."id" LIMIT \$2`).WithArgs(1, 1).WillReturnRows(rows)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "pages" SET "title"=\$1,"content"=\$2,"created_at"=\$3,"updated_at"=\$4 WHERE "id" = \$5`).
+		WithArgs("Updated Title", "Updated Content", sqlmock.AnyArg(), sqlmock.AnyArg(), 1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	update := models.Page{Title: "Updated Title", Content: "Updated Content"}
+	body, _ := json.Marshal(update)
+
+	router.PUT("/pages/:id", UpdatePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/pages/1", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	var response models.Page
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Title != "Updated Title" {
+		t.Fatalf("Expected updated title, got %s", response.Title)
+	}
 }
 
 func TestDeletePage(t *testing.T) {
-	//TODO: Add test for DeletePage
-    // STEP 1: Test Setup
-    // - Initialize test environment
-    
-    // STEP 2: Database Expectations
-    // - Expect SELECT to verify existence
-    // - Expect transaction begin
-    // - Expect DELETE query
-    // - Expect transaction commit
-    
-    // STEP 3: HTTP Test Setup
-    // - Register DELETE route
-    // - Create request with ID
-    
-    // STEP 4: Response Validation
-    // - Verify successful deletion
-    // - Check deletion message
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at"}).
+		AddRow(1, "Title", "Content", now, now)
+	mock.ExpectQuery(`SELECT \* FROM "pages" WHERE "pages"\."id" = \$1 ORDER BY "pages"\."id" LIMIT \$2`).WithArgs(1, 1).WillReturnRows(rows)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM "pages" WHERE "pages"\."id" = \$1`).WithArgs(1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	router.DELETE("/pages/:id", DeletePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/pages/1", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	var response utils.MessageResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Message != "Page deleted" {
+		t.Fatalf("Expected deletion message, got %s", response.Message)
+	}
 }
 
 /*
