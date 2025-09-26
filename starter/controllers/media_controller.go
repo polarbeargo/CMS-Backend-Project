@@ -5,6 +5,7 @@ import (
 	"cms-backend/utils"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
@@ -16,11 +17,65 @@ var mediaValidator = validator.New()
 func GetMedia(c *gin.Context) {
 	db := c.MustGet("db").(*gorm.DB)
 	var media []models.Media
-	if err := db.Find(&media).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, utils.HTTPError{Code: 500, Message: err.Error()})
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 10
+	}
+	offset := (page - 1) * pageSize
+
+	sortBy := c.DefaultQuery("sort_by", "created_at")
+	sortOrder := strings.ToLower(c.DefaultQuery("sort_order", "desc"))
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "desc"
+	}
+	sortField := sortBy
+	switch sortBy {
+	case "url", "type", "created_at", "updated_at":
+	default:
+		sortField = "created_at"
+	}
+
+	search := c.Query("search")
+	query := db.Model(&models.Media{})
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		query = query.Where(
+			db.Where("url ILIKE ?", searchPattern).
+				Or("type ILIKE ?", searchPattern),
+		)
+	}
+
+	mediaType := c.Query("type")
+	if mediaType != "" {
+		query = query.Where("type = ?", mediaType)
+	}
+
+	var total int64
+	query.Count(&total)
+
+	if err := query.Order(sortField + " " + sortOrder).
+		Limit(pageSize).
+		Offset(offset).
+		Find(&media).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, utils.HTTPError{
+			Code:    http.StatusInternalServerError,
+			Message: err.Error(),
+		})
 		return
 	}
-	c.JSON(http.StatusOK, media)
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":       media,
+		"page":       page,
+		"page_size":  pageSize,
+		"total":      total,
+		"total_page": (total + int64(pageSize) - 1) / int64(pageSize),
+	})
 }
 
 func GetMediaByID(c *gin.Context) {
