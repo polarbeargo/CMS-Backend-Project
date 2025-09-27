@@ -1,6 +1,21 @@
 package integration
 
-import "testing"
+import (
+	"cms-backend/models"
+	"cms-backend/routes"
+	"log"
+	"os"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+)
+
+var (
+	testDB *gorm.DB
+	router *gin.Engine
+)
 
 // TODO: Import required packages for:
 // - Database (gorm, postgres driver)
@@ -28,61 +43,95 @@ Key Components:
 */
 
 func TestMain(m *testing.M) {
-	//TODO: Implement TestMain
-    // STEP 1: Environment Setup
-    // - Call setup() function
-    
-    // STEP 2: Run Tests
-    // - Execute all integration tests
-    
-    // STEP 3: Cleanup
-    // - Call cleanup() function
-    // - Exit with test result code
+	setup()
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 func setup() {
 	//TODO: Implement setup
-    // STEP 1: Configure Gin
-    // - Set Gin to test mode for integration testing
-    
-    // STEP 2: Database Connection
-    // - Define test database connection string
-    // - Connect to test database using GORM
-    // - Store connection in testDB variable
-    // - Handle connection errors
-    
-    // STEP 3: Schema Migration
-    // - Migrate all model schemas:
-    //   * Media
-    //   * Page
-    //   * Post
-    //   * Any join tables
-    
-    // STEP 4: Router Setup
-    // - Initialize Gin router
-    // - Set up routes with test database
+	// STEP 1: Configure Gin
+	// - Set Gin to test mode for integration testing
+	gin.SetMode(gin.TestMode)
+
+	// STEP 2: Database Connection
+	// - Define test database connection string
+	// - Connect to test database using GORM
+	// - Store connection in testDB variable
+	// - Handle connection errors
+	dsn := os.Getenv("TEST_DATABASE_DSN")
+	if dsn == "" {
+		dsn = "host=localhost user=postgres password=postgres dbname=cms_test port=5432 sslmode=disable"
+	}
+	var err error
+	testDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Failed to connect to test database: %v", err)
+	}
+
+	// STEP 3: Schema Migration
+	// - Migrate all model schemas:
+	//   * Media
+	//   * Page
+	//   * Post
+	//   * Any join tables
+	if err := testDB.AutoMigrate(&models.Media{}, &models.Page{}, &models.Post{}); err != nil {
+		log.Fatalf("Failed to migrate schemas: %v", err)
+	}
+	// Migrate join table for Post-Media
+	if err := testDB.SetupJoinTable(&models.Post{}, "Media", &models.PostMedia{}); err != nil {
+		log.Fatalf("Failed to setup join table: %v", err)
+	}
+
+	// STEP 4: Router Setup
+	// - Initialize Gin router
+	// - Set up routes with test database
+	router = gin.New()
+	routes.InitializeRoutes(router, testDB)
 }
 
 func cleanup() {
 	//TODO: Implement cleanup
-    // STEP 1: Database Cleanup
-    // - Get underlying SQL database
-    // - Drop all tables in correct order:
-    //   1. Junction tables (post_media)
-    //   2. Main tables (posts, media, pages)
-    
-    // STEP 2: Connection Cleanup
-    // - Close database connection
-    // - Handle any cleanup errors
+	// STEP 1: Database Cleanup
+	// - Get underlying SQL database
+	// - Drop all tables in correct order:
+	//   1. Junction tables (post_media)
+	//   2. Main tables (posts, media, pages)
+	sqlDB, err := testDB.DB()
+	if err != nil {
+		log.Printf("Failed to get sql.DB: %v", err)
+		return
+	}
+
+	if err := testDB.Migrator().DropTable("post_media"); err != nil {
+		log.Printf("Failed to drop post_media: %v", err)
+	}
+
+	for _, tbl := range []string{"posts", "media", "pages"} {
+		if err := testDB.Migrator().DropTable(tbl); err != nil {
+			log.Printf("Failed to drop table %s: %v", tbl, err)
+		}
+	}
+
+	// STEP 2: Connection Cleanup
+	// - Close database connection
+	// - Handle any cleanup errors
+	sqlDB.Close()
 }
 
 func clearTables() {
 	//TODO: Implement clearTables
-    // STEP 1: Data Cleanup
-    // - Delete all data from tables in correct order:
-    //   1. Junction tables first
-    //   2. Main tables next
-    // - Maintain referential integrity
+	// STEP 1: Data Cleanup
+	// - Delete all data from tables in correct order:
+	//   1. Junction tables first
+	//   2. Main tables next
+	// - Maintain referential integrity
+	// Delete data in correct order
+	testDB.Exec("DELETE FROM post_media")
+	testDB.Exec("DELETE FROM posts")
+	testDB.Exec("DELETE FROM media")
+	testDB.Exec("DELETE FROM pages")
 }
 
 /*

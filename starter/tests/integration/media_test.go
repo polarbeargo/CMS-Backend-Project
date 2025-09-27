@@ -5,100 +5,95 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// TODO: Import required packages for:
-// - JSON handling
-// - HTTP testing
-// - Your application models
-// - Testing package
-
-/*
-MEDIA INTEGRATION TESTS
-
-These tests verify the complete flow of media operations through the API.
-Each test should:
-1. Start with a clean database state
-2. Perform API operations
-3. Verify the responses
-4. Check database state if needed
-*/
-
 func TestMediaIntegration(t *testing.T) {
-	//TODO: Implement TestMediaIntegration
-    // STEP 1: Clear Database
-    // - Clear all tables before starting tests
 	clearTables()
 
 	t.Run("Create Media", func(t *testing.T) {
-		//TODO: Implement test logic
-        // STEP 1: Prepare Test Data
-        // - Create JSON body with:
-        //   * URL (e.g., "http://example.com/test.jpg")
-        //   * Type (e.g., "image")
 		body := `{
-			"url": "http://example.com/test.jpg",
-			"type": "image"
-		}`
-
-		// STEP 2: Create HTTP Request
-		// - Create POST request to /api/v1/media
-		// - Set Content-Type header
-		// - Add request body	
+            "url": "http://example.com/test.jpg",
+            "type": "image"
+        }`
 		req := httptest.NewRequest("POST", "/api/v1/media", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-
-		// STEP 3: Execute Request
-		// - Create response recorder
-		// - Send request through router
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		if w.Code != http.StatusCreated {
 			t.Fatalf("Expected status 201, got %d: %s", w.Code, w.Body.String())
 		}
-
-		// STEP 4: Verify Response
-		// - Check status code (should be 201 Created)
-		// - Parse response JSON
-		// - Verify media properties (URL, type)
-		// - Handle any parsing errors
 		var response models.Media
 		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 			t.Fatalf("Failed to unmarshal response: %v", err)
 		}
-
 		if response.URL != "http://example.com/test.jpg" {
 			t.Errorf("Expected URL 'http://example.com/test.jpg', got %s", response.URL)
 		}
 	})
 
-    t.Run("Get All Media", func(t *testing.T) {
-		//TODO: Implement test logic
-        // STEP 1: Setup Test Data
-        // - Create test media entries if needed
-        
-        // STEP 2: Create HTTP Request
-        // - Create GET request to /api/v1/media
-        
-        // STEP 3: Execute Request
-        // - Create response recorder
-        // - Send request through router
-        
-        // STEP 4: Verify Response
-        // - Check status code (should be 200 OK)
-        // - Parse response JSON array
-        // - Verify media list properties
-        // - Check number of items
-    })
+	t.Run("Get All Media", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/media", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var response map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
+		data, ok := response["data"].([]interface{})
+		if !ok {
+			t.Fatalf("Expected data array in response")
+		}
+		if len(data) == 0 {
+			t.Errorf("Expected at least 1 media, got %d", len(data))
+		}
+	})
 
-    // TODO: Additional test cases to consider:
-    // - Get single media by ID
-    // - Create media with invalid data
-    // - Delete media
-    // - Create media with duplicate URL
+	t.Run("Get Media By ID", func(t *testing.T) {
+		body := `{"url": "http://example.com/unique.jpg", "type": "image"}`
+		req := httptest.NewRequest("POST", "/api/v1/media", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		var created models.Media
+		json.Unmarshal(w.Body.Bytes(), &created)
+
+		req = httptest.NewRequest("GET", "/api/v1/media/"+strconv.Itoa(int(created.ID)), nil)
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var response models.Media
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
+		if response.URL != "http://example.com/unique.jpg" {
+			t.Errorf("Expected URL 'http://example.com/unique.jpg', got %s", response.URL)
+		}
+	})
+
+	t.Run("Delete Media", func(t *testing.T) {
+		body := `{"url": "http://example.com/delete.jpg", "type": "image"}`
+		req := httptest.NewRequest("POST", "/api/v1/media", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		var created models.Media
+		json.Unmarshal(w.Body.Bytes(), &created)
+
+		req = httptest.NewRequest("DELETE", "/api/v1/media/"+strconv.Itoa(int(created.ID)), nil)
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
 }
 
 /*
