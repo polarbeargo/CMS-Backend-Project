@@ -12,6 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -176,6 +177,353 @@ func TestDeletePage(t *testing.T) {
 	}
 	if response.Message != "Page deleted" {
 		t.Fatalf("Expected deletion message, got %s", response.Message)
+	}
+}
+
+func TestGetPage_InvalidID(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	router.GET("/pages/:id", GetPage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/pages/invalid", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Message != "Invalid page ID" {
+		t.Fatalf("Expected 'Invalid page ID', got %s", response.Message)
+	}
+}
+
+func TestGetPage_NotFound(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	mock.ExpectQuery(`SELECT \* FROM "pages" WHERE "pages"\."id" = \$1 ORDER BY "pages"\."id" LIMIT \$2`).
+		WithArgs(999, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+
+	router.GET("/pages/:id", GetPage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/pages/999", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Expected status 404, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Message != "Page not found" {
+		t.Fatalf("Expected 'Page not found', got %s", response.Message)
+	}
+}
+
+func TestGetPage_DatabaseError(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	mock.ExpectQuery(`SELECT \* FROM "pages" WHERE "pages"\."id" = \$1 ORDER BY "pages"\."id" LIMIT \$2`).
+		WithArgs(1, 1).
+		WillReturnError(gorm.ErrInvalidDB)
+
+	router.GET("/pages/:id", GetPage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/pages/1", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("Expected status 500, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Code != 500 {
+		t.Fatalf("Expected error code 500, got %d", response.Code)
+	}
+}
+
+func TestCreatePage_InvalidJSON(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	router.POST("/pages", CreatePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/pages", strings.NewReader("{invalid json}"))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Code != 400 {
+		t.Fatalf("Expected error code 400, got %d", response.Code)
+	}
+}
+
+func TestCreatePage_MissingRequiredFields(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	incompletePage := map[string]string{
+		"title":   "",
+		"content": "Some content",
+	}
+	body, _ := json.Marshal(incompletePage)
+
+	router.POST("/pages", CreatePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/pages", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Code != 400 {
+		t.Fatalf("Expected error code 400, got %d", response.Code)
+	}
+}
+
+func TestCreatePage_DatabaseError(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "pages"`).
+		WithArgs("Test Page", "Test Content", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnError(gorm.ErrInvalidDB)
+	mock.ExpectRollback()
+
+	page := models.Page{Title: "Test Page", Content: "Test Content"}
+	body, _ := json.Marshal(page)
+
+	router.POST("/pages", CreatePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/pages", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("Expected status 500, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Code != 500 {
+		t.Fatalf("Expected error code 500, got %d", response.Code)
+	}
+}
+
+func TestUpdatePage_InvalidID(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	updateData := models.Page{Title: "Updated", Content: "Updated Content"}
+	body, _ := json.Marshal(updateData)
+
+	router.PUT("/pages/:id", UpdatePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/pages/invalid", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Message != "Invalid page ID" {
+		t.Fatalf("Expected 'Invalid page ID', got %s", response.Message)
+	}
+}
+
+func TestUpdatePage_NotFound(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	mock.ExpectQuery(`SELECT \* FROM "pages" WHERE "pages"\."id" = \$1 ORDER BY "pages"\."id" LIMIT \$2`).
+		WithArgs(999, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+
+	updateData := models.Page{Title: "Updated", Content: "Updated Content"}
+	body, _ := json.Marshal(updateData)
+
+	router.PUT("/pages/:id", UpdatePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/pages/999", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Expected status 404, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Message != "Page not found" {
+		t.Fatalf("Expected 'Page not found', got %s", response.Message)
+	}
+}
+
+func TestDeletePage_InvalidID(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	router.DELETE("/pages/:id", DeletePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/pages/invalid", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Message != "Invalid page ID" {
+		t.Fatalf("Expected 'Invalid page ID', got %s", response.Message)
+	}
+}
+
+func TestDeletePage_NotFound(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	mock.ExpectQuery(`SELECT \* FROM "pages" WHERE "pages"\."id" = \$1 ORDER BY "pages"\."id" LIMIT \$2`).
+		WithArgs(999, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+
+	router.DELETE("/pages/:id", DeletePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/pages/999", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Expected status 404, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Message != "Page not found" {
+		t.Fatalf("Expected 'Page not found', got %s", response.Message)
+	}
+}
+
+func TestDeletePage_DatabaseError(t *testing.T) {
+	router, _, mock := utils.SetupRouterAndMockDB(t)
+	defer mock.ExpectClose()
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at"}).
+		AddRow(1, "Test Page", "Test Content", now, now)
+	mock.ExpectQuery(`SELECT \* FROM "pages" WHERE "pages"\."id" = \$1 ORDER BY "pages"\."id" LIMIT \$2`).
+		WithArgs(1, 1).
+		WillReturnRows(rows)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM "pages" WHERE "pages"\."id" = \$1`).
+		WithArgs(1).
+		WillReturnError(gorm.ErrInvalidDB)
+	mock.ExpectRollback()
+
+	router.DELETE("/pages/:id", DeletePage)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/pages/1", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("Expected status 500, got %d", w.Code)
+	}
+
+	var response utils.HTTPError
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Error unmarshaling response: %v", err)
+	}
+	if response.Code != 500 {
+		t.Fatalf("Expected error code 500, got %d", response.Code)
+	}
+}
+
+func TestGetPages_WithPaginationAndSorting(t *testing.T) {
+
+	testCases := []struct {
+		name         string
+		queryParams  string
+		expectStatus int
+	}{
+		{"ValidPagination", "?page=2&page_size=5", http.StatusOK},
+		{"InvalidPage", "?page=0", http.StatusOK},           // 應該預設為 1
+		{"InvalidPageSize", "?page_size=-1", http.StatusOK}, // 應該預設為 10
+		{"ValidSorting", "?sort_by=title&sort_order=asc", http.StatusOK},
+		{"InvalidSorting", "?sort_by=invalid&sort_order=invalid", http.StatusOK},
+		{"SearchFilter", "?search=test", http.StatusOK},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			router, _, mock := utils.SetupRouterAndMockDB(t)
+			defer mock.ExpectClose()
+
+			countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
+
+			if tc.name == "SearchFilter" {
+				mock.ExpectQuery(`SELECT count\(\*\) FROM "pages" WHERE title ILIKE \$1 OR content ILIKE \$2`).
+					WithArgs("%test%", "%test%").
+					WillReturnRows(countRows)
+
+				rows := sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at"})
+				mock.ExpectQuery(`SELECT \* FROM "pages" WHERE title ILIKE \$1 OR content ILIKE \$2 ORDER BY created_at desc LIMIT \$3`).
+					WithArgs("%test%", "%test%", 10).
+					WillReturnRows(rows)
+			} else {
+				mock.ExpectQuery(`SELECT count\(\*\) FROM "pages"`).WillReturnRows(countRows)
+
+				rows := sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at"})
+				mock.ExpectQuery(`SELECT \* FROM "pages"`).WillReturnRows(rows)
+			}
+
+			router.GET("/pages", GetPages)
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, "/pages"+tc.queryParams, nil)
+			router.ServeHTTP(w, req)
+
+			if w.Code != tc.expectStatus {
+				t.Fatalf("Expected status %d for %s, got %d", tc.expectStatus, tc.name, w.Code)
+			}
+		})
 	}
 }
 
