@@ -2,6 +2,7 @@
 package main
 
 import (
+	"cms-backend/middleware"
 	"cms-backend/models"
 	"cms-backend/routes"
 	"cms-backend/utils"
@@ -101,16 +102,28 @@ func main() {
 	}
 
 	router := gin.Default()
+
+	router.Use(middleware.ConnectionPoolMiddleware())
+	router.Use(middleware.GzipMiddleware())
+
+	middleware.InitializeCache()
+	router.Use(middleware.RedisCacheMiddleware(5 * time.Minute))
+
 	router.Use(SecureHeader())
 
-	limiter := newIPRateLimiter(rate.Every(time.Minute/100), 100)
+	limiter := newIPRateLimiter(rate.Every(time.Minute/200), 200)
 	router.Use(RateLimitMiddleware(limiter))
 
 	// Initialize routes
 	routes.InitializeRoutes(router, dbRes.GormDB)
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	// Run the server
-	if err := router.Run(":8080"); err != nil {
+	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
 }

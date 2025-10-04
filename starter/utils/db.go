@@ -38,10 +38,13 @@ func ConnectDB() (*DBResources, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pgxpool config: %w", err)
 	}
-	poolConfig.MaxConns = 10
-	poolConfig.MinConns = 2
-	poolConfig.MaxConnLifetime = 30 * time.Minute
+
+	poolConfig.MaxConns = 25
+	poolConfig.MinConns = 5
+	poolConfig.MaxConnLifetime = 60 * time.Minute
+	poolConfig.MaxConnIdleTime = 30 * time.Minute
 	poolConfig.HealthCheckPeriod = 1 * time.Minute
+	poolConfig.ConnConfig.ConnectTimeout = 10 * time.Second
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -55,7 +58,14 @@ func ConnectDB() (*DBResources, error) {
 		return nil, fmt.Errorf("pgxpool ping failed: %w", err)
 	}
 
-	gormDB, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{})
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  dsn,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		PrepareStmt:                              true,
+		DisableForeignKeyConstraintWhenMigrating: false,
+		SkipDefaultTransaction:                   true,
+	})
 	if err != nil {
 		pgxPool.Close()
 		return nil, fmt.Errorf("failed to connect to database (gorm): %w", err)
@@ -70,9 +80,10 @@ func ConnectDB() (*DBResources, error) {
 		return nil, fmt.Errorf("database ping failed: %w", err)
 	}
 
-	sqlDB.SetMaxOpenConns(10)
-	sqlDB.SetMaxIdleConns(2)
-	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	sqlDB.SetMaxOpenConns(25)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(60 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(30 * time.Minute)
 
 	return &DBResources{
 		GormDB:  gormDB,

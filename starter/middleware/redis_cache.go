@@ -404,7 +404,7 @@ func RedisCacheMiddleware(ttl time.Duration) gin.HandlerFunc {
 			}
 
 			c.Header("X-Cache", "MISS")
-			c.Header("X-Cache-Key", cacheKey[:8]) // First 8 chars for debugging
+			c.Header("X-Cache-Key", cacheKey[:8])
 		}
 	}
 }

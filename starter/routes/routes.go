@@ -17,20 +17,39 @@ func InitializeRoutes(router *gin.Engine, db *gorm.DB) {
 
 	api := router.Group("/api/v1")
 
-	api.GET("/pages", controllers.GetPages)
-	api.GET("/pages/:id", controllers.GetPage)
-	api.POST("/pages", controllers.CreatePage)
-	api.PUT("/pages/:id", controllers.UpdatePage)
-	api.DELETE("/pages/:id", controllers.DeletePage)
+	pages := api.Group("/pages")
+	{
+		pages.GET("", controllers.GetPages)
+		pages.GET("/:id", controllers.GetPage)
+		pages.POST("", controllers.CreatePage)
+		pages.PUT("/:id", controllers.UpdatePage)
+		pages.DELETE("/:id", controllers.DeletePage)
+	}
 
-	api.GET("/posts", controllers.GetPosts)
-	api.GET("/posts/:id", controllers.GetPost)
-	api.POST("/posts", controllers.CreatePost)
-	api.PUT("/posts/:id", controllers.UpdatePost)
-	api.DELETE("/posts/:id", controllers.DeletePost)
+	posts := api.Group("/posts")
+	{
+		posts.GET("", controllers.GetPosts)
+		posts.GET("/:id", controllers.GetPost)
+		posts.POST("", controllers.CreatePost)
+		posts.PUT("/:id", controllers.UpdatePost)
+		posts.DELETE("/:id", controllers.DeletePost)
+	}
 
-	api.GET("/media", controllers.GetMedia)
-	api.GET("/media/:id", controllers.GetMediaByID)
-	api.POST("/media", controllers.CreateMedia)
-	api.DELETE("/media/:id", controllers.DeleteMedia)
+	media := api.Group("/media")
+	{
+		media.GET("", controllers.GetMedia)
+		media.GET("/:id", controllers.GetMediaByID)
+		media.POST("", controllers.CreateMedia)
+		media.DELETE("/:id", controllers.DeleteMedia)
+	}
+
+	cache := api.Group("/cache")
+	{
+		cache.GET("/stats", controllers.GetCacheStats)
+		cache.POST("/clear", controllers.ClearCache)
+		cache.POST("/invalidate", controllers.InvalidateCache)
+		cache.POST("/invalidate/:resource", controllers.InvalidateResourceCache)
+		cache.POST("/warmup", controllers.WarmupCache)
+		cache.GET("/health", controllers.CacheHealth)
+	}
 }
