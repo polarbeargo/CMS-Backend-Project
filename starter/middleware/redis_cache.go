@@ -332,10 +332,23 @@ func generateRedisCacheKey(c *gin.Context) string {
 	method := c.Request.Method
 	userAgent := c.GetHeader("User-Agent")
 
-	key := fmt.Sprintf("%s:%s:%s", method, url, userAgent)
+	resource := ""
+	if strings.Contains(url, "/posts") {
+		resource = "posts"
+	} else if strings.Contains(url, "/pages") {
+		resource = "pages"
+	} else if strings.Contains(url, "/media") {
+		resource = "media"
+	}
 
+	key := fmt.Sprintf("%s:%s:%s", method, url, userAgent)
 	hash := md5.Sum([]byte(key))
-	return hex.EncodeToString(hash[:])
+	hashStr := hex.EncodeToString(hash[:])
+
+	if resource != "" {
+		return resource + ":" + hashStr
+	}
+	return hashStr
 }
 
 func RedisCacheMiddleware(ttl time.Duration) gin.HandlerFunc {
