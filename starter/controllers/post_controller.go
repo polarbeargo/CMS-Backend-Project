@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"cms-backend/middleware"
 	"cms-backend/models"
 	"cms-backend/utils"
 	"net/http"
@@ -48,27 +49,50 @@ func GetPosts(c *gin.Context) {
 	}
 
 	search := c.Query("search")
-	query := db.Model(&models.Post{}).Preload("Media")
-	if search != "" {
-		searchPattern := "%" + search + "%"
-		query = query.Where(
-			db.Where("title ILIKE ?", searchPattern).
-				Or("content ILIKE ?", searchPattern).
-				Or("author ILIKE ?", searchPattern),
-		)
-	}
-
 	title := c.Query("title")
 	author := c.Query("author")
-	if title != "" {
-		query = query.Where("title ILIKE ?", "%"+title+"%")
+
+	var conditions []string
+	var args []interface{}
+
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		conditions = append(conditions, "(title ILIKE ? OR content ILIKE ? OR author ILIKE ?)")
+		args = append(args, searchPattern, searchPattern, searchPattern)
 	}
+
+	if title != "" {
+		conditions = append(conditions, "title ILIKE ?")
+		args = append(args, "%"+title+"%")
+	}
+
 	if author != "" {
-		query = query.Where("author = ?", author)
+		conditions = append(conditions, "author = ?")
+		args = append(args, author)
 	}
 
 	var total int64
-	query.Count(&total)
+	countQuery := db.Model(&models.Post{})
+	if len(conditions) > 0 {
+		whereClause := strings.Join(conditions, " AND ")
+		countQuery = countQuery.Where(whereClause, args...)
+	}
+	if err := countQuery.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, utils.HTTPError{
+			Code:    http.StatusInternalServerError,
+			Message: "Failed to count posts",
+		})
+		return
+	}
+
+	query := db.Preload("Media", func(db *gorm.DB) *gorm.DB {
+		return db.Select("id, url, type")
+	})
+
+	if len(conditions) > 0 {
+		whereClause := strings.Join(conditions, " AND ")
+		query = query.Where(whereClause, args...)
+	}
 
 	if err := query.Order(sortField + " " + sortOrder).
 		Limit(pageSize).
@@ -76,7 +100,7 @@ func GetPosts(c *gin.Context) {
 		Find(&posts).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, utils.HTTPError{
 			Code:    http.StatusInternalServerError,
-			Message: err.Error(),
+			Message: "Failed to fetch posts",
 		})
 		return
 	}
@@ -143,7 +167,10 @@ func CreatePost(c *gin.Context) {
 		return
 	}
 	tx.Commit()
-	if err := db.Preload("Media").First(&post, post.ID).Error; err == nil {
+
+	middleware.InvalidatePostCache()
+
+	if err := db.Preload("Media").First(&post, "id = ?", post.ID).Error; err == nil {
 		c.JSON(http.StatusCreated, post)
 	} else {
 		c.JSON(http.StatusCreated, post)
@@ -203,7 +230,10 @@ func UpdatePost(c *gin.Context) {
 		return
 	}
 	tx.Commit()
-	if err := db.Preload("Media").First(&post, post.ID).Error; err == nil {
+
+	middleware.InvalidatePostCache()
+
+	if err := db.Preload("Media").First(&post, "id = ?", post.ID).Error; err == nil {
 		c.JSON(http.StatusOK, post)
 	} else {
 		c.JSON(http.StatusOK, post)
@@ -235,5 +265,8 @@ func DeletePost(c *gin.Context) {
 		return
 	}
 	tx.Commit()
+
+	middleware.InvalidatePostCache()
+
 	c.JSON(http.StatusOK, utils.MessageResponse{Message: "Post deleted"})
 }

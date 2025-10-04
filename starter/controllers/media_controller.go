@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"cms-backend/middleware"
 	"cms-backend/models"
 	"cms-backend/utils"
 	"net/http"
@@ -41,22 +42,41 @@ func GetMedia(c *gin.Context) {
 	}
 
 	search := c.Query("search")
+	mediaType := c.Query("type")
+
 	query := db.Model(&models.Media{})
+	var conditions []string
+	var args []interface{}
+
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		query = query.Where(
-			db.Where("url ILIKE ?", searchPattern).
-				Or("type ILIKE ?", searchPattern),
-		)
+		conditions = append(conditions, "url ILIKE ? OR type ILIKE ?")
+		args = append(args, searchPattern, searchPattern)
 	}
 
-	mediaType := c.Query("type")
 	if mediaType != "" {
-		query = query.Where("type = ?", mediaType)
+		conditions = append(conditions, "type = ?")
+		args = append(args, mediaType)
+	}
+
+	if len(conditions) > 0 {
+		whereClause := strings.Join(conditions, " AND ")
+		query = query.Where(whereClause, args...)
 	}
 
 	var total int64
-	query.Count(&total)
+	countQuery := db.Model(&models.Media{})
+	if len(conditions) > 0 {
+		whereClause := strings.Join(conditions, " AND ")
+		countQuery = countQuery.Where(whereClause, args...)
+	}
+	if err := countQuery.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, utils.HTTPError{
+			Code:    http.StatusInternalServerError,
+			Message: "Failed to count media records",
+		})
+		return
+	}
 
 	if err := query.Order(sortField + " " + sortOrder).
 		Limit(pageSize).
@@ -64,7 +84,7 @@ func GetMedia(c *gin.Context) {
 		Find(&media).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, utils.HTTPError{
 			Code:    http.StatusInternalServerError,
-			Message: err.Error(),
+			Message: "Failed to fetch media records",
 		})
 		return
 	}
@@ -116,6 +136,9 @@ func CreateMedia(c *gin.Context) {
 		return
 	}
 	tx.Commit()
+
+	middleware.InvalidateMediaCache()
+
 	c.JSON(http.StatusCreated, input)
 }
 
@@ -143,5 +166,8 @@ func DeleteMedia(c *gin.Context) {
 		return
 	}
 	tx.Commit()
+
+	middleware.InvalidateMediaCache()
+
 	c.JSON(http.StatusOK, utils.MessageResponse{Message: "Media deleted"})
 }

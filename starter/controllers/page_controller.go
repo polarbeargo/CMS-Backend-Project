@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"cms-backend/middleware"
 	"cms-backend/models"
 	"cms-backend/utils"
 	"net/http"
@@ -125,6 +126,8 @@ func CreatePage(c *gin.Context) {
 		return
 	}
 	tx.Commit()
+	middleware.InvalidatePageCache()
+
 	c.JSON(http.StatusCreated, page)
 }
 
@@ -168,6 +171,8 @@ func UpdatePage(c *gin.Context) {
 		return
 	}
 	tx.Commit()
+	middleware.InvalidatePageCache()
+
 	c.JSON(http.StatusOK, page)
 }
 
@@ -200,5 +205,8 @@ func DeletePage(c *gin.Context) {
 		return
 	}
 	tx.Commit()
+
+	middleware.InvalidatePageCache()
+
 	c.JSON(http.StatusOK, utils.MessageResponse{Message: "Page deleted"})
 }
