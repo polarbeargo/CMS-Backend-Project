@@ -4,11 +4,35 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+func setupMockDB() (*gorm.DB, sqlmock.Sqlmock, error) {
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	gormDB, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: db,
+	}), &gorm.Config{})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return gormDB, mock, nil
+}
+
+func setupTestDB() *gorm.DB {
+	db, _, _ := setupMockDB()
+	return db
+}
 
 func TestInitializeRoutes(t *testing.T) {
 
@@ -17,15 +41,7 @@ func TestInitializeRoutes(t *testing.T) {
 	t.Run("RouteInitialization", func(t *testing.T) {
 
 		router := gin.New()
-
-		db, err := gorm.Open(postgres.Open(""), &gorm.Config{
-			SkipDefaultTransaction: true,
-			DryRun:                 true,
-		})
-
-		if err != nil {
-			t.Skip("Skipping test due to DB connection issue")
-		}
+		db := setupTestDB()
 
 		InitializeRoutes(router, db)
 
@@ -55,7 +71,7 @@ func TestInitializeRoutes(t *testing.T) {
 
 	t.Run("RouteMethodMapping", func(t *testing.T) {
 		router := gin.New()
-		db := &gorm.DB{}
+		db := setupTestDB()
 		InitializeRoutes(router, db)
 
 		routes := router.Routes()
@@ -73,15 +89,16 @@ func TestInitializeRoutes(t *testing.T) {
 
 	t.Run("MiddlewareConfiguration", func(t *testing.T) {
 		router := gin.New()
+		db := setupTestDB()
 
 		router.Use(func(c *gin.Context) {
-			c.Set("db", "mock_db")
+			c.Set("db", db)
 			c.Next()
 		})
 
 		router.GET("/test", func(c *gin.Context) {
-			db, exists := c.Get("db")
-			if exists && db != nil {
+			dbFromContext, exists := c.Get("db")
+			if exists && dbFromContext != nil {
 				c.JSON(200, gin.H{"status": "ok"})
 			} else {
 				c.JSON(500, gin.H{"status": "error"})
@@ -98,7 +115,7 @@ func TestInitializeRoutes(t *testing.T) {
 
 	t.Run("APIVersioning", func(t *testing.T) {
 		router := gin.New()
-		db := &gorm.DB{}
+		db := setupTestDB()
 
 		InitializeRoutes(router, db)
 
@@ -116,7 +133,7 @@ func TestInitializeRoutes(t *testing.T) {
 
 	t.Run("RouteGroupStructure", func(t *testing.T) {
 		router := gin.New()
-		db := &gorm.DB{}
+		db := setupTestDB()
 
 		InitializeRoutes(router, db)
 
@@ -147,7 +164,7 @@ func TestInitializeRoutes(t *testing.T) {
 func TestDatabaseMiddleware(t *testing.T) {
 	t.Run("DatabaseContextInjection", func(t *testing.T) {
 		router := gin.New()
-		db := &gorm.DB{}
+		db := setupTestDB()
 
 		router.Use(func(c *gin.Context) {
 			c.Set("db", db)
