@@ -75,10 +75,10 @@ func SecureHeader() gin.HandlerFunc {
 }
 
 func main() {
-	// Initialize database connection
-	dbRes, err := utils.ConnectDB()
+	log.Println("Initializing database connection...")
+	dbRes, err := utils.ConnectDBWithRetry(10, 5*time.Second)
 	if err != nil {
-		log.Fatalf("Could not connect to the database: %v", err)
+		log.Fatalf("Could not connect to the database after retries: %v", err)
 	}
 	defer utils.CloseDatabase(dbRes)
 

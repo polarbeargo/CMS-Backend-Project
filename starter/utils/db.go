@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -14,6 +15,30 @@ import (
 type DBResources struct {
 	GormDB  *gorm.DB
 	PgxPool *pgxpool.Pool
+}
+
+func ConnectDBWithRetry(maxRetries int, retryDelay time.Duration) (*DBResources, error) {
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Printf("Database connection attempt %d/%d", attempt, maxRetries)
+
+		dbRes, err := ConnectDB()
+		if err == nil {
+			log.Println("Database connection successful")
+			return dbRes, nil
+		}
+
+		lastErr = err
+		log.Printf("Database connection failed (attempt %d/%d): %v", attempt, maxRetries, err)
+
+		if attempt < maxRetries {
+			log.Printf("Retrying in %v...", retryDelay)
+			time.Sleep(retryDelay)
+		}
+	}
+
+	return nil, fmt.Errorf("failed to connect to database after %d attempts: %w", maxRetries, lastErr)
 }
 
 func ConnectDB() (*DBResources, error) {
